@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Go Goroutines & Scheduler (G–M–P)</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: #0f172a;
+        --panel-2: #0b1220;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --accent: #60a5fa;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --bad: #ef4444;
+        --queue: #334155;
+        --g-runnable: #93c5fd;
+        --g-running: #34d399;
+        --g-wait: #fbbf24;
+        --g-sys: #fb7185;
+        --g-done: #a78bfa;
+        --highlight: #fde68a;
+        --shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI,
+          Roboto, "Helvetica Neue", Arial, "Noto Sans";
+      }
+      h1 {
+        font-weight: 700;
+        letter-spacing: 0.3px;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .badge {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(96, 165, 250, 0.2);
+        border: 1px solid rgba(96, 165, 250, 0.5);
+        color: var(--accent);
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .panel {
+        background: linear-gradient(
+          180deg,
+          rgba(17, 24, 39, 0.9),
+          rgba(15, 23, 42, 0.9)
+        );
+        border: 1px solid #1f2937;
+        border-radius: 14px;
+        padding: 12px;
+        box-shadow: var(--shadow);
+      }
+      .toolbar .btn {
+        padding: 8px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 1px solid #1f2937;
+        background: #0b1220;
+        color: var(--text);
+        transition: transform 0.05s ease, background 0.2s ease;
+      }
+      .toolbar .btn:hover {
+        background: #0f172a;
+      }
+      .toolbar .btn:active {
+        transform: translateY(1px);
+      }
+      .toolbar .btn.primary {
+        background: #1d4ed8;
+        border-color: #1e3a8a;
+      }
+      .toolbar .btn.primary:hover {
+        background: #2563eb;
+      }
+      .toolbar .btn.warning {
+        background: #854d0e;
+        border-color: #713f12;
+      }
+      .toolbar .btn.ghost {
+        background: transparent;
+      }
+      .toolbar .split {
+        height: 24px;
+        width: 1px;
+        background: #1f2937;
+        margin: 0 6px;
+      }
+      .toolbar .field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        border: 1px solid #1f2937;
+        background: #0b1220;
+      }
+      input[type="range"] {
+        accent-color: var(--accent);
+      }
+      select {
+        background: #0b1220;
+        color: var(--text);
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 4px 6px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .legend .swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        margin-right: 6px;
+        vertical-align: -2px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 12px;
+        align-items: start;
+      }
+      .row .label {
+        color: var(--muted);
+        font-size: 12px;
+        padding-top: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+
+      .queue {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        background: #0b1220;
+        border: 1px dashed #374151;
+        border-radius: 12px;
+        padding: 10px;
+        min-height: 48px;
+      }
+      .g {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 28px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        position: relative;
+      }
+      .g[data-state="runnable"] {
+        background: linear-gradient(
+          180deg,
+          rgba(147, 197, 253, 0.25),
+          rgba(147, 197, 253, 0.1)
+        );
+        border-color: rgba(147, 197, 253, 0.45);
+      }
+      .g[data-state="running"] {
+        background: linear-gradient(
+          180deg,
+          rgba(52, 211, 153, 0.25),
+          rgba(52, 211, 153, 0.1)
+        );
+        border-color: rgba(52, 211, 153, 0.45);
+      }
+      .g[data-state="waiting"] {
+        background: linear-gradient(
+          180deg,
+          rgba(251, 191, 36, 0.25),
+          rgba(251, 191, 36, 0.1)
+        );
+        border-color: rgba(251, 191, 36, 0.45);
+      }
+      .g[data-state="syscall"] {
+        background: linear-gradient(
+          180deg,
+          rgba(251, 113, 133, 0.25),
+          rgba(251, 113, 133, 0.1)
+        );
+        border-color: rgba(251, 113, 133, 0.45);
+      }
+      .g[data-state="done"] {
+        background: linear-gradient(
+          180deg,
+          rgba(167, 139, 250, 0.25),
+          rgba(167, 139, 250, 0.1)
+        );
+        border-color: rgba(167, 139, 250, 0.45);
+        filter: saturate(0.8);
+      }
+      .g .mini {
+        position: absolute;
+        bottom: -14px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .ps {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+      }
+      .p-card {
+        background: var(--panel);
+        border: 1px solid #1f2937;
+        border-radius: 14px;
+        padding: 10px;
+        box-shadow: var(--shadow);
+      }
+      .p-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .p-title {
+        font-weight: 700;
+      }
+      .p-sub {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .p-body {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .p-runq {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px;
+        border-radius: 10px;
+        background: #0b1220;
+        border: 1px dashed #374151;
+        min-height: 40px;
+      }
+      .m-slot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #0b1220;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 8px;
+      }
+      .m-chip {
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid #334155;
+        background: #111827;
+      }
+      .m-chip.running {
+        background: rgba(52, 211, 153, 0.12);
+        border-color: rgba(52, 211, 153, 0.4);
+      }
+      .m-chip.spinning {
+        background: rgba(147, 197, 253, 0.12);
+        border-color: rgba(147, 197, 253, 0.4);
+      }
+      .m-chip.blocked {
+        background: rgba(251, 113, 133, 0.12);
+        border-color: rgba(251, 113, 133, 0.4);
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid #1f2937;
+        border-radius: 14px;
+        padding: 10px;
+        box-shadow: var(--shadow);
+      }
+      .muted {
+        color: var(--muted);
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+      }
+      .stat {
+        background: #0b1220;
+        border: 1px solid #1f2937;
+        border-radius: 12px;
+        padding: 8px;
+        text-align: center;
+      }
+      .stat .n {
+        font-weight: 800;
+        font-size: 18px;
+      }
+
+      .logs {
+        max-height: 120px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono";
+        font-size: 12px;
+      }
+      .log-item {
+        padding: 3px 0;
+        border-bottom: 1px dashed #1f2937;
+      }
+
+      .tips details {
+        background: #0b1220;
+        border: 1px solid #1f2937;
+        border-radius: 12px;
+        padding: 8px;
+      }
+      .tips summary {
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .stw {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.8);
+        z-index: 10;
+      }
+      .stw.active {
+        display: flex;
+      }
+      .stw .box {
+        background: #111827;
+        border: 1px solid #334155;
+        padding: 20px 28px;
+        border-radius: 16px;
+        text-align: center;
+      }
+
+      .blink {
+        animation: blink 0.5s ease-out;
+      }
+      @keyframes blink {
+        from {
+          box-shadow: 0 0 0 2px var(--highlight), var(--shadow);
+        }
+        to {
+          box-shadow: var(--shadow);
+        }
+      }
+
+      .footer {
+        opacity: 0.7;
+        font-size: 12px;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="title">
+          <h1>Go Goroutines & Scheduler</h1>
+          <span
+            class="badge"
+            title="Models Goroutines (G), OS Threads (M), and Processors (P)"
+            >G–M–P</span
+          >
+        </div>
+        <div class="legend panel">
+          <span
+            ><span class="swatch" style="background: var(--g-runnable)"></span
+            >Runnable</span
+          >
+          <span
+            ><span class="swatch" style="background: var(--g-running)"></span
+            >Running</span
+          >
+          <span
+            ><span class="swatch" style="background: var(--g-wait)"></span
+            >Waiting (IO/timer)</span
+          >
+          <span
+            ><span class="swatch" style="background: var(--g-sys)"></span
+            >Syscall block</span
+          >
+          <span
+            ><span class="swatch" style="background: var(--g-done)"></span
+            >Done</span
+          >
+        </div>
+      </div>
+
+      <div
+        class="panel toolbar"
+        style="
+          margin-top: 12px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          justify-content: space-between;
+        "
+      >
+        <div class="controls">
+          <button class="btn primary" id="playBtn">▶ Play</button>
+          <button class="btn" id="pauseBtn">⏸ Pause</button>
+          <button class="btn" id="stepBtn">⏭ Step</button>
+          <button class="btn" id="resetBtn">⟲ Reset</button>
+          <span class="split"></span>
+          <div class="field">
+            <label>Speed</label
+            ><input
+              type="range"
+              id="speed"
+              min="200"
+              max="1500"
+              step="50"
+              value="1000"
+            />
+          </div>
+          <div class="field">
+            <label>Max Processors</label
+            ><input
+              type="range"
+              id="gomax"
+              min="1"
+              max="8"
+              step="1"
+              value="1"
+            /><span id="gomaxVal">2</span>
+          </div>
+          <div class="field">
+            <label title="Enable time-slice preemption">Preemption</label
+            ><input type="checkbox" id="preempt" checked />
+          </div>
+          <div class="field">
+            <label title="Make goroutines block more often (netpoll/timers)"
+              >IO‑heavy</label
+            ><input type="checkbox" id="ioheavy" />
+          </div>
+          <div class="field">
+            <label>Spawn Mode</label>
+            <select id="spawnMode">
+              <option value="glo">local / global overflow</option>
+              <option value="lq" selected>P0 local queue</option>
+            </select>
+          </div>
+          <span class="split"></span>
+          <button class="btn" id="spawn5">Spawn 5 G</button>
+          <button class="btn" id="spawn20">Spawn 20 G</button>
+          <button class="btn warning" id="triggerGC">
+            Trigger GC safepoint
+          </button>
+        </div>
+        <div class="stats" style="min-width: 600px">
+          <div class="stat">
+            <div class="n" id="statRunning">0</div>
+            <div class="muted">Running (parallel)</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statRunnable">0</div>
+            <div class="muted">Runnable</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statWaiting">0</div>
+            <div class="muted">Waiting</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statGCount">0</div>
+            <div class="muted">Total Gs</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statDone">0</div>
+            <div class="muted">Completed</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statRemain">0</div>
+            <div class="muted">Remaining</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="row">
+          <div class="label">Global Run Queue</div>
+          <div class="queue" id="globalQ"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">Net Poller / Timers</div>
+          <div class="queue" id="netpollQ"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">Processors (P) & Local Run Queues</div>
+          <div class="ps" id="ps"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">Blocked Syscalls (M without a P)</div>
+          <div class="queue" id="sysBlock"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">Scheduler Log</div>
+          <div class="card logs" id="logs"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">Completed (finish order)</div>
+          <div class="queue" id="doneQ"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stw" id="stwOverlay">
+      <div class="box" id="stwOverlayBox">
+        <div style="font-size: 28px; font-weight: 800; margin-bottom: 6px">
+          GC Safepoint — Stop The World
+        </div>
+        <div>Scheduler paused briefly to simulate STW. Resuming soon…</div>
+      </div>
+    </div>
+
+    <script>
+      const rand = (min, max) =>
+        Math.floor(Math.random() * (max - min + 1)) + min;
+
+      const State = {
+        RUNNABLE: "runnable",
+        RUNNING: "running",
+        WAITING: "waiting",
+        SYSCALL: "syscall",
+        DONE: "done",
+      };
+
+      const RUNQ_MAX = 8;
+
+      const ui = {
+        globalQ: document.getElementById("globalQ"),
+        netpollQ: document.getElementById("netpollQ"),
+        ps: document.getElementById("ps"),
+        sysBlock: document.getElementById("sysBlock"),
+        logs: document.getElementById("logs"),
+        stw: document.getElementById("stwOverlay"),
+        statRunning: document.getElementById("statRunning"),
+        statRunnable: document.getElementById("statRunnable"),
+        statWaiting: document.getElementById("statWaiting"),
+        statGCount: document.getElementById("statGCount"),
+        statDone: document.getElementById("statDone"),
+        statRemain: document.getElementById("statRemain"),
+        gomaxVal: document.getElementById("gomaxVal"),
+        doneQ: document.getElementById("doneQ"),
+      };
+
+      const playBtn = document.getElementById("playBtn");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const stepBtn = document.getElementById("stepBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const spawn5 = document.getElementById("spawn5");
+      const spawn20 = document.getElementById("spawn20");
+      const triggerGC = document.getElementById("triggerGC");
+      const speed = document.getElementById("speed");
+      const gomax = document.getElementById("gomax");
+      const preempt = document.getElementById("preempt");
+      const ioheavy = document.getElementById("ioheavy");
+      const spawnModeSel = document.getElementById("spawnMode");
+      const stwOverlay = document.getElementById("stwOverlayBox");
+
+      let nextGid = 1;
+      let tickTimer = null;
+      let stwTicks = 0;
+
+      const model = {
+        P: [],
+        M: [],
+        G: new Map(),
+        globalQ: [],
+        netpoll: [],
+        sysBlocked: [],
+        doneOrder: [],
+        log: [],
+        settings: {
+          gomaxprocs: 1,
+          preempt: true,
+          ioBias: false,
+          spawnMode: "glo",
+        },
+        _rrP: 0,
+      };
+
+      function log(msg) {
+        const time = new Date().toLocaleTimeString();
+        model.log.unshift(`[${time}] ${msg}`);
+        if (model.log.length > 200) model.log.pop();
+        renderLogs();
+      }
+
+      function reset() {
+        pause();
+        nextGid = 1;
+        stwTicks = 0;
+        model.P = [];
+        model.M = [];
+        model.G.clear();
+        model.globalQ = [];
+        model.netpoll = [];
+        model.sysBlocked = [];
+        model.doneOrder = [];
+        model.log = [];
+        model._rrP = 0;
+
+        const Pn = model.settings.gomaxprocs;
+        for (let i = 0; i < Pn; i++) {
+          model.P.push({ id: i, runq: [], m: null });
+          model.M.push({ id: i, p: i, g: null, state: "spinning" });
+        }
+        for (let i = 0; i < Pn; i++) {
+          model.P[i].m = i;
+          model.M[i].state = "idle";
+        }
+
+        renderAll();
+      }
+
+      function spawnGs(n, kind = "mix") {
+        const mode = model.settings.spawnMode;
+        for (let i = 0; i < n; i++) {
+          const gid = nextGid++;
+          const ioBound =
+            kind === "io" ||
+            (kind === "mix" &&
+              Math.random() < (model.settings.ioBias ? 0.7 : 0.35));
+          const g = {
+            id: gid,
+            state: State.RUNNABLE,
+            where: "P",
+            p: null,
+            quantum: rand(2, 4),
+            workLeft: rand(4, 10),
+            ioBound,
+            note: ioBound ? "IO‑bound" : "CPU‑bound",
+          };
+          model.G.set(gid, g);
+
+          if (mode === "lq") {
+            const p = model.P[0];
+            g.p = p.id;
+            g.where = "P";
+            p.runq.push(gid);
+          } else {
+            const p = model.P.length
+              ? model.P[model._rrP % model.P.length]
+              : null;
+            model._rrP++;
+            if (p && p.runq.length < RUNQ_MAX) {
+              g.p = p.id;
+              g.where = "P";
+              p.runq.push(gid);
+            } else {
+              g.where = "global";
+              model.globalQ.push(gid);
+            }
+          }
+        }
+        log(
+          `Spawned ${n} goroutine(s) in ${
+            mode === "lq" ? "P0 local queue" : "local/global overflow"
+          } mode.`
+        );
+        renderAll();
+      }
+
+      function tick() {
+        if (stwTicks > 0) {
+          stwTicks--;
+          if (stwTicks === 0) ui.stw.classList.remove("active");
+          return renderAll();
+        }
+
+        if (model.settings.preempt) {
+          for (const m of model.M) {
+            if (m.g) {
+              const g = model.G.get(m.g);
+              g.quantum -= 1;
+              if (g.quantum <= 0) {
+                g.quantum = rand(2, 4);
+                g.state = State.RUNNABLE;
+                g.where = "P";
+                const p = model.P[m.p];
+                p.runq.push(g.id);
+                log(`Preempted G${g.id} on P${p.id}; requeued.`);
+                m.g = null;
+                m.state = "idle";
+              }
+            }
+          }
+        }
+
+        for (const m of model.M) {
+          if (m.g && Math.random() < (model.settings.ioBias ? 0.12 : 0.06)) {
+            const g = model.G.get(m.g);
+            g.state = State.SYSCALL;
+            g.where = "syscall";
+            g.unblockTick = rand(2, 5);
+            model.sysBlocked.push({
+              mId: m.id,
+              gId: g.id,
+              ticks: g.unblockTick,
+            });
+            log(
+              `G${g.id} entered blocking syscall on M${m.id}; P${m.p} handed off.`
+            );
+            const p = model.P[m.p];
+            p.m = null;
+            m.state = "blocked";
+            m.g = null;
+            m.p = null;
+          }
+        }
+
+        for (const sb of model.sysBlocked) sb.ticks -= 1;
+        const doneSys = model.sysBlocked.filter((sb) => sb.ticks <= 0);
+        model.sysBlocked = model.sysBlocked.filter((sb) => sb.ticks > 0);
+        for (const sb of doneSys) {
+          const g = model.G.get(sb.gId);
+          if (!g) continue;
+          g.state = State.RUNNABLE;
+          g.where = "global";
+          g.quantum = rand(2, 4);
+          model.globalQ.push(g.id);
+          log(`Syscall finished for G${g.id}; moved to global runq.`);
+          const m = model.M.find((mm) => mm.id === sb.mId);
+          if (m) m.state = "spinning";
+        }
+
+        for (const gid of model.netpoll) {
+          const g = model.G.get(gid);
+          if (Math.random() < 0.4) {
+            g.state = State.RUNNABLE;
+            g.where = "global";
+            model.globalQ.push(g.id);
+            log(`Netpoll ready: G${g.id} moved to global runq.`);
+          }
+        }
+        model.netpoll = model.netpoll.filter(
+          (gid) => model.G.get(gid)?.where === "waiting"
+        );
+
+        for (const p of model.P) {
+          if (p.m === null) {
+            const m = model.M.find(
+              (mm) =>
+                mm.p === null &&
+                (mm.state === "spinning" || mm.state === "idle")
+            );
+            if (m) {
+              m.p = p.id;
+              p.m = m.id;
+              m.state = "idle";
+              log(`Handed P${p.id} to idle M${m.id}.`);
+            } else {
+              const newMId = model.M.length;
+              model.M.push({ id: newMId, p: p.id, g: null, state: "idle" });
+              p.m = newMId;
+              log(`Spawned new M${newMId} to run on P${p.id}.`);
+            }
+          }
+        }
+
+        for (const p of model.P) {
+          const m = p.m !== null ? model.M[p.m] : null;
+          if (!m) continue;
+          if (m.g) continue;
+
+          let gId = p.runq.shift();
+          if (!gId) gId = model.globalQ.shift();
+          if (!gId) {
+            const donor = model.P.filter(
+              (pp) => pp.runq.length >= 2 && pp.id !== p.id
+            ).sort((a, b) => b.runq.length - a.runq.length)[0];
+            if (donor) {
+              const n = Math.floor(donor.runq.length / 2) || 1;
+              const stolen = donor.runq.splice(-n, n);
+              p.runq.push(...stolen);
+              log(`Work stealing: P${p.id} stole ${n} G(s) from P${donor.id}.`);
+              gId = p.runq.shift();
+            }
+          }
+
+          if (gId) {
+            const g = model.G.get(gId);
+            g.state = State.RUNNING;
+            g.where = "running";
+            g.quantum = g.quantum || rand(2, 4);
+            m.g = g.id;
+            m.state = "running";
+            log(`Scheduled G${g.id} on M${m.id}/P${p.id}.`);
+          } else {
+            m.state = "spinning";
+          }
+        }
+
+        for (const m of model.M) {
+          if (!m.g) continue;
+          const g = model.G.get(m.g);
+          if (!g) {
+            m.g = null;
+            m.state = "idle";
+            continue;
+          }
+
+          g.workLeft -= 1;
+
+          if (
+            g.state !== State.DONE &&
+            g.ioBound &&
+            Math.random() < (model.settings.ioBias ? 0.35 : 0.18)
+          ) {
+            g.state = State.WAITING;
+            g.where = "waiting";
+            model.netpoll.push(g.id);
+            log(`G${g.id} blocked on IO/timer -> netpoll.`);
+            m.g = null;
+            m.state = "idle";
+            continue;
+          }
+
+          if (g.workLeft <= 0 && g.state !== State.DONE) {
+            g.state = State.DONE;
+            g.where = "done";
+            model.doneOrder.push(g.id);
+            log(`G${g.id} finished.`);
+            m.g = null;
+            m.state = "idle";
+            continue;
+          }
+        }
+
+        renderAll();
+      }
+
+      function renderAll() {
+        const states = {
+          running: 0,
+          runnable: 0,
+          waiting: 0,
+          syscall: 0,
+          total: 0,
+        };
+        for (const g of model.G.values()) {
+          if (g.state === State.RUNNING) states.running++;
+          if (g.state === State.RUNNABLE) states.runnable++;
+          if (g.state === State.WAITING) states.waiting++;
+          if (g.state === State.SYSCALL) states.syscall++;
+          states.total++;
+        }
+        const doneCount = model.doneOrder.length;
+        const remaining = Math.max(0, states.total - doneCount);
+        ui.statRunning.textContent = `${states.running} / ${model.settings.gomaxprocs}`;
+        ui.statRunnable.textContent = states.runnable;
+        ui.statWaiting.textContent =
+          states.waiting +
+          (states.syscall ? ` (+${states.syscall} syscall)` : "");
+        ui.statGCount.textContent = states.total;
+        ui.statDone.textContent = doneCount;
+        ui.statRemain.textContent = remaining;
+
+        ui.globalQ.innerHTML = "";
+        for (const gid of model.globalQ) ui.globalQ.appendChild(renderG(gid));
+
+        ui.netpollQ.innerHTML = "";
+        for (const gid of model.netpoll) ui.netpollQ.appendChild(renderG(gid));
+
+        ui.ps.innerHTML = "";
+        for (const p of model.P) ui.ps.appendChild(renderPCard(p));
+
+        ui.sysBlock.innerHTML = "";
+        for (const sb of model.sysBlocked) {
+          const m = model.M.find((mm) => mm.id === sb.mId);
+          const g = model.G.get(sb.gId);
+          const wrap = document.createElement("div");
+          wrap.className = "m-slot";
+          const chip = document.createElement("div");
+          chip.className = "m-chip blocked";
+          chip.textContent = `M${m?.id ?? "?"} (syscall)`;
+          const gEl = renderG(g.id);
+          gEl.dataset.state = "syscall";
+          gEl.title = `G${g.id} in syscall; ${sb.ticks} ticks to return`;
+          wrap.appendChild(chip);
+          wrap.appendChild(gEl);
+          ui.sysBlock.appendChild(wrap);
+        }
+
+        ui.doneQ.innerHTML = "";
+        for (const gid of model.doneOrder) {
+          const el = renderG(gid);
+          el.dataset.state = "done";
+          ui.doneQ.appendChild(el);
+        }
+
+        ui.stw.classList.toggle("active", stwTicks > 0);
+      }
+
+      function renderG(gid) {
+        const g = model.G.get(gid);
+        const el = document.createElement("div");
+        el.className = "g blink";
+        el.dataset.state = g.state;
+        el.textContent = g.id;
+        el.title = `G${g.id} — ${g.note}\nstate: ${g.state}\nquantum: ${g.quantum}\nworkLeft: ${g.workLeft}`;
+        const mini = document.createElement("div");
+        mini.className = "mini";
+        mini.textContent = g.ioBound ? "IO" : "CPU";
+        el.appendChild(mini);
+        return el;
+      }
+
+      function renderPCard(p) {
+        const card = document.createElement("div");
+        card.className = "p-card";
+        const head = document.createElement("div");
+        head.className = "p-head";
+        const t = document.createElement("div");
+        t.className = "p-title";
+        t.textContent = `P${p.id}`;
+        const sub = document.createElement("div");
+        sub.className = "p-sub";
+        const m = p.m !== null ? model.M[p.m] : null;
+        sub.textContent = m ? `M${m.id}: ${m.state}` : "no M attached";
+        head.appendChild(t);
+        head.appendChild(sub);
+
+        const body = document.createElement("div");
+        body.className = "p-body";
+
+        const mslot = document.createElement("div");
+        mslot.className = "m-slot";
+        const chip = document.createElement("div");
+        chip.className =
+          "m-chip " +
+          (m
+            ? m.state === "running"
+              ? "running"
+              : m.state === "spinning"
+              ? "spinning"
+              : ""
+            : "");
+        chip.textContent = m ? `M${m.id}` : "—";
+        mslot.appendChild(chip);
+        if (m && m.g) {
+          mslot.appendChild(renderG(m.g));
+        } else {
+          const muted = document.createElement("div");
+          muted.className = "muted";
+          muted.textContent = "idle";
+          mslot.appendChild(muted);
+        }
+
+        const runq = document.createElement("div");
+        runq.className = "p-runq";
+        for (const gid of p.runq) runq.appendChild(renderG(gid));
+
+        body.appendChild(mslot);
+        body.appendChild(runq);
+
+        card.appendChild(head);
+        card.appendChild(body);
+        return card;
+      }
+
+      function renderLogs() {
+        ui.logs.innerHTML = model.log
+          .map((line) => `<div class="log-item">${line}</div>`)
+          .join("");
+      }
+
+      function play() {
+        if (tickTimer) return;
+        tickTimer = setInterval(tick, Number(speed.value));
+      }
+      function pause() {
+        if (tickTimer) {
+          clearInterval(tickTimer);
+          tickTimer = null;
+        }
+      }
+
+      playBtn.addEventListener("click", play);
+      pauseBtn.addEventListener("click", pause);
+      stepBtn.addEventListener("click", () => {
+        pause();
+        tick();
+      });
+      resetBtn.addEventListener("click", reset);
+      speed.addEventListener("input", () => {
+        if (tickTimer) {
+          pause();
+          play();
+        }
+      });
+
+      gomax.addEventListener("input", () => {
+        const newVal = Number(gomax.value);
+        ui.gomaxVal.textContent = String(newVal);
+        model.settings.gomaxprocs = newVal;
+        const old = model.P.length;
+        if (newVal > old) {
+          for (let i = old; i < newVal; i++) {
+            model.P.push({ id: i, runq: [], m: null });
+            model.M.push({ id: model.M.length, p: i, g: null, state: "idle" });
+            model.P[i].m = model.M.length - 1;
+            log(`Added P${i} and attached new M${model.M.length - 1}.`);
+          }
+        } else if (newVal < old) {
+          for (let i = model.P.length - 1; i >= newVal; i--) {
+            const p = model.P[i];
+            model.globalQ.push(...p.runq);
+            const mId = p.m;
+            if (mId !== null) {
+              const m = model.M[mId];
+              if (m) {
+                m.p = null;
+                m.g = null;
+                m.state = "spinning";
+              }
+            }
+            log(`Removed P${p.id}; its runq moved to global.`);
+          }
+          model.P = model.P.slice(0, newVal);
+        }
+        renderAll();
+      });
+
+      preempt.addEventListener("change", () => {
+        model.settings.preempt = preempt.checked;
+        log(`Preemption ${preempt.checked ? "enabled" : "disabled"}.`);
+      });
+      ioheavy.addEventListener("change", () => {
+        model.settings.ioBias = ioheavy.checked;
+        log(`IO bias ${ioheavy.checked ? "high" : "normal"}.`);
+      });
+      spawnModeSel.addEventListener("change", () => {
+        model.settings.spawnMode = spawnModeSel.value;
+        log(`Spawn mode set to ${model.settings.spawnMode}.`);
+      });
+
+      spawn5.addEventListener("click", () => spawnGs(5));
+      spawn20.addEventListener("click", () => spawnGs(20));
+
+      triggerGC.addEventListener("click", () => {
+        stwTicks = 2;
+        ui.stw.classList.add("active");
+        log("GC safepoint: stop-the-world.");
+        renderAll();
+      });
+      stwOverlay.addEventListener("click", () => {
+        ui.stw.classList.toggle("active", stwTicks > 0);
+        renderAll();
+      });
+
+      reset();
+    </script>
+  </body>
+</html>
