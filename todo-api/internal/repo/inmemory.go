@@ -39,10 +39,22 @@ func (r *InMemoryTodoRepo) Create(todo *model.Todo) (string, error) {
 	return fmt.Sprintf("%d", rec.ID), nil
 }
 func (r *InMemoryTodoRepo) List() ([]*model.Todo, error) {
-	return nil, nil
+	out := make([]*model.Todo, 0, len(r.todos))
+	r.mu.RLock()
+	for _, v := range r.todos {
+		out = append(out, v)
+	}
+	r.mu.RUnlock()
+	return out, nil
 }
 func (r *InMemoryTodoRepo) Get(id int) (*model.Todo, error) {
-	return nil, nil
+	r.mu.RLock()
+	todo, exists := r.todos[id]
+	r.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("todo not found")
+	}
+	return todo, nil
 }
 func (r *InMemoryTodoRepo) Update(todo *model.Todo) error {
 	return nil
