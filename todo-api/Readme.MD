@@ -14,6 +14,6 @@ go install github.com/swaggo/swag/cmd/swag@latest
 swag init -g main.go -o docs
 ```
 
-#### Swagger ui url
+### Swagger ui url
 
 http://localhost:8081/swagger/index.html
