@@ -3,7 +3,8 @@ package model
 import "time"
 
 type Todo struct {
-	ID        int       `json:"id"`
+	ID        int       `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID    int       `json:"user_id" gorm:"index"`
 	Title     string    `json:"title"`
 	Done      bool      `json:"done"`
 	CreatedAt time.Time `json:"created_at"`

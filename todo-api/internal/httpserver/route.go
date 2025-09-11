@@ -38,5 +38,22 @@ func RegisterRoutes(s *storage.Storage) *http.ServeMux {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+
+	mux.HandleFunc("/users/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleUserRegistration(w, r, s.Repository)
+	})
+
+	mux.HandleFunc("/users/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleUserAuthentication(w, r, s.Repository)
+	})
+
 	return mux
 }

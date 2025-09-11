@@ -12,11 +12,16 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
+
 func main() {
 	fmt.Println("Todo API")
 
 	s := &storage.Storage{
-		Repository: repo.NewInMemoryTodoRepo(),
+		Repository: repo.NewSQLTodoRepository(),
 	}
 	mux := httpserver.RegisterRoutes(s)
 	docs.SwaggerInfo.BasePath = "/"
@@ -24,6 +29,7 @@ func main() {
 	var handler http.Handler = mux
 	handler = middleware.Recovery(handler)
 	handler = middleware.Logging(handler)
+	handler = middleware.ValidateJWT(handler)
 	srv := &http.Server{
 		Addr:    ":8081",
 		Handler: handler,

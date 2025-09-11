@@ -11,12 +11,34 @@ definitions:
         type: string
       updated_at:
         type: string
+      user_id:
+        type: integer
     type: object
   model.TodoInput:
     properties:
       done:
         type: boolean
       title:
+        type: string
+    type: object
+  model.User:
+    properties:
+      age:
+        type: integer
+      email:
+        type: string
+      id:
+        type: integer
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  model.UserInput:
+    properties:
+      password:
+        type: string
+      username:
         type: string
     type: object
 info:
@@ -34,6 +56,8 @@ paths:
             items:
               $ref: '#/definitions/model.Todo'
             type: array
+      security:
+      - BearerAuth: []
       summary: List all todos
       tags:
       - todos
@@ -55,6 +79,8 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/model.Todo'
+      security:
+      - BearerAuth: []
       summary: Create a new todo
       tags:
       - todos
@@ -74,7 +100,63 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/model.Todo'
+      security:
+      - BearerAuth: []
       summary: Get a todo by ID
       tags:
       - todos
+  /users/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate a user with username and password
+      parameters:
+      - description: User login data
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/model.UserInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Authenticate a user
+      tags:
+      - users
+  /users/register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new user with username and password
+      parameters:
+      - description: User registration data
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/model.User'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new user
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
