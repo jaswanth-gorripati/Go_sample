@@ -1,0 +1,23 @@
+syntax = "proto3";
+package todo.v1;
+option go_package = "todo/v1;todo_v1";
+
+message Todo {
+  string id = 1;
+  string title = 2;
+  bool completed = 3;
+  int32 created_at = 4;
+  int32 updated_at = 5;
+}
+
+
+message CreateTodoRequest {
+  string title = 1;
+}
+message CreateTodoResponse {
+  Todo todo = 1;
+}
+
+service TodoService {
+  rpc CreateTodo (CreateTodoRequest) returns ( CreateTodoResponse);
+}
