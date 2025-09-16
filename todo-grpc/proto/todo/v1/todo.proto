@@ -1,3 +1,4 @@
+// protoc --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative  proto/todo/v1/todo.proto
 syntax = "proto3";
 package todo.v1;
 option go_package = "todo/v1;todo_v1";
@@ -18,6 +19,34 @@ message CreateTodoResponse {
   Todo todo = 1;
 }
 
+message BulkCreateTodosResponse {
+  repeated string ids = 1;
+}
+enum WatchTodosOperation {
+  UNKNOWN = 0;
+  CREATED = 1;
+  UPDATED = 2;
+  DELETED = 3;
+  FETCHED = 4;
+}
+message WatchTodosResponse {
+  WatchTodosOperation operation = 1;
+  Todo todo = 2;  
+}
+message WatchTodosRequest {
+  bool only_new = 1;
+}
+
+message ListTodosRequest {
+  bool completed = 1;
+}
+
 service TodoService {
   rpc CreateTodo (CreateTodoRequest) returns ( CreateTodoResponse);
-}
+  // List server Streaming
+  rpc ListTodos (ListTodosRequest) returns (stream Todo);
+  // Bulk create todos client streaming
+  rpc BulkCreateTodos (stream CreateTodoRequest) returns (BulkCreateTodosResponse);
+  // watchOPS bidirectionally
+  rpc WatchTodos (stream WatchTodosRequest) returns (stream WatchTodosResponse);
+ }

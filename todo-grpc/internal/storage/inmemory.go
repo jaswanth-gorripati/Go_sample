@@ -44,10 +44,13 @@ func (r *InMemoryTodoRepo) Create(ctx context.Context, title string) (*todo_v1.T
 	r.seq.Add(1)
 	return rec, nil
 }
-func (r *InMemoryTodoRepo) List(ctx context.Context) ([]*todo_v1.Todo, error) {
+func (r *InMemoryTodoRepo) List(ctx context.Context, onlyTrue bool) ([]*todo_v1.Todo, error) {
 	out := make([]*todo_v1.Todo, 0, len(r.todos))
 	r.mu.RLock()
 	for _, v := range r.todos {
+		// if onlyTrue && !v.Completed {
+		// 	continue
+		// }
 		out = append(out, v)
 	}
 	r.mu.RUnlock()
